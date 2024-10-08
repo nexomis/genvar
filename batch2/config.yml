@@ -85,6 +85,20 @@ P2:
     beta_prop:
       alpha: 2
       beta: 2
+  snp_snps:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  snp_indels:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
   indel:
     gamma_pos:
       shape: 2

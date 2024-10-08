@@ -50,6 +50,16 @@ def main():
     indel_params = passage_params.get('indel', {})
     deletion_params = passage_params.get('deletion', {})
 
+    # New mutation from existing mutations parameters
+    snp_snp_params = passage_params.get('snp_snps', {})
+    snp_indel_params = passage_params.get('snp_indels', {})
+    indel_indel_params = passage_params.get('indel_indels', {})
+
+    # Generate mutations from existing mutations
+    new_snps_from_snps = generate_snp_snp(snp_snp_params, reference_sequence, known_snps) if snp_snp_params else []
+    new_snps_from_indels = generate_snp_indel(snp_indel_params, reference_sequence, known_snps, known_indels) if snp_indel_params else []
+    new_indels_from_indels = generate_indel_indel(indel_indel_params, reference_sequence, known_indels, known_deletions) if indel_indel_params else []
+
     # Generate new mutations
     new_snps = generate_snp(snp_params, reference_sequence, known_snps, known_indels, known_deletions) if snp_params else []
     new_indels = generate_indel(indel_params, reference_sequence, known_snps, known_indels, known_deletions) if indel_params else []
@@ -81,8 +91,14 @@ def main():
 
     # Add new mutations to known mutations
     known_snps.extend(new_snps)
+    known_snps.extend(new_snps_from_snps)
+    known_snps.extend(new_snps_from_indels)
     known_indels.extend(new_indels)
+    known_indels.extend(new_indels_from_indels)
     known_deletions.extend(new_deletions)
+
+    # Adjust frequencies of mutations at the same position
+    adjust_mutation_frequencies(known_snps, known_indels)
 
     # Generate reads
     reads_R1, reads_R2 = generate_reads(reference_sequence, args.num_fragments, args.R1_size, args.R2_size, known_snps, known_indels, known_deletions, args.fragment_size_mean, args.fragment_size_sd, args.fragment_size_min)
@@ -186,6 +202,114 @@ class Deletion:
 
   def overlap(self, pos):
       return pos >= self.start_position and pos < self.start_position + self.length
+
+def adjust_mutation_frequencies(known_snps, known_indels):
+  # For mutations at the same position, ensure total frequency does not exceed 1
+  position_freq = {}
+  # Collect positions and total frequencies
+  for snp in known_snps:
+    position_freq.setdefault(snp.position, 0)
+    if not str(snp.position) in position_freq.keys():
+      position_freq[str(snp.position)] = 0
+    position_freq[str(snp.position)] += snp.proportion
+  for indel in known_indels:
+    if not str(indel.position) in position_freq.keys():
+      position_freq[str(indel.position)] = 0
+    position_freq[str(indel.position)] += indel.proportion
+  # Adjust frequencies
+  for str_pos, total_freq in position_freq.items():
+    pos = int(str_pos)
+    if total_freq > 1:
+      print(f"adjust pos {pos}, {total_freq}")
+      # Find all mutations at this position and adjust their proportions
+      total_mutations = []
+      for snp in known_snps:
+        if snp.position == pos:
+          total_mutations.append(snp)
+      for indel in known_indels:
+        if indel.indel_type == 'insertion' and indel.position == pos:
+          total_mutations.append(indel)
+        elif indel.indel_type == 'deletion' and indel.position <= pos < indel.position + indel.length:
+          total_mutations.append(indel)
+          # Adjust proportions
+      for mutation in total_mutations:
+        mutation.proportion = mutation.proportion / total_freq
+  # Collect positions and total frequencies
+  position_freq = {}
+  for snp in known_snps:
+    position_freq.setdefault(snp.position, 0)
+    if not str(snp.position) in position_freq.keys():
+      position_freq[str(snp.position)] = 0
+    position_freq[str(snp.position)] += snp.proportion
+  for indel in known_indels:
+    if not str(indel.position) in position_freq.keys():
+      position_freq[str(indel.position)] = 0
+    position_freq[str(indel.position)] += indel.proportion
+  for pos, total_freq in position_freq.items():
+    if total_freq > 1:
+      print(f"Not adjusted {total_freq}")
+      sys.exit(1)
+
+def generate_snp_snp(snp_snp_params, reference_sequence, known_snp=[]):
+  """
+  Generate SNPs from existing SNPs.
+  """
+  num_new_snps = int(np.random.gamma(shape=snp_snp_params['gamma_pos']['shape'], scale=1.0/snp_snp_params['gamma_pos']['rate']))
+  new_snps = []
+
+  indices = random.sample(range(len(known_snp)), min(num_new_snps, len(known_snp)))
+
+  for idx in indices:
+    snp = known_snp[idx]
+    # Generate new SNP at the same position
+    ref_base = reference_sequence[snp.position]
+    alt_bases = [b for b in ['A', 'T', 'C', 'G'] if b != ref_base and not b in [mut.alt_base for mut in known_snp if mut.position == snp.position]]
+    alt_base = random.choice(alt_bases)
+    proportion = np.random.beta(snp_snp_params['beta_prop']['alpha'], snp_snp_params['beta_prop']['beta'])
+    new_snp = SNP(position=snp.position, alt_base=alt_base, proportion=proportion*snp.proportion)
+    known_snp[idx].proportion = (1-proportion) * snp.proportion
+    new_snps.append(new_snp)
+  return new_snps
+
+def generate_snp_indel(snp_indel_params, reference_sequence, known_snp=[], known_indel=[]):
+  """
+  Generate SNPs from existing indels.
+  """
+  num_new_snps = int(np.random.gamma(shape=snp_indel_params['gamma_pos']['shape'], scale=1.0/snp_indel_params['gamma_pos']['rate']))
+  new_snps = []
+
+  indels = random.sample(known_indel, min(num_new_snps, len(known_indel)))
+
+  for indel in indels:
+      pos = indel.position
+      ref_base = reference_sequence[pos]
+      alt_bases = [b for b in ['A', 'T', 'C', 'G'] if b != ref_base]
+      alt_base = random.choice(alt_bases)
+      proportion = np.random.beta(snp_indel_params['beta_prop']['alpha'], snp_indel_params['beta_prop']['beta'])
+      new_snp = SNP(position=pos, alt_base=alt_base, proportion=proportion*indel.proportion)
+      indel.proportion = (1-proportion) * indel.proportion
+      new_snps.append(new_snp)
+  return new_snps
+
+def generate_indel_indel(indel_params, reference_sequence, known_indel=[], known_deletions=[]):
+  """
+  Generate indels from existing indels.
+  """
+  num_new_indels = int(np.random.gamma(shape=indel_params['gamma_pos']['shape'], scale=1.0/indel_params['gamma_pos']['rate']))
+  new_indels = []
+
+  indels = random.sample(known_indel, min(num_new_indels, len(known_indel)))
+
+  for indel in indels:
+      proportion = np.random.beta(indel_params['beta_prop']['alpha'], indel_params['beta_prop']['beta'])
+
+      if indel.indel_type == 'insertion':
+        new_seq = indel.sequence + random.choice(['A', 'T', 'C', 'G'])
+        new_indel = Indel(position=indel.position, indel_type='insertion', 
+          sequence=new_seq, proportion=proportion*indel.proportion)
+        indel.proportion = (1-proportion)*indel.proportion
+        new_indels.append(new_indel)
+  return new_indels
 
 def generate_snp(snp_params, reference_sequence, known_snp=[], known_indel=[], known_deletions=[]):
   num_snps = int(np.random.gamma(shape=snp_params['gamma_pos']['shape'], scale=1.0/snp_params['gamma_pos']['rate']))
@@ -305,9 +429,13 @@ def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, kno
       return 0
 
   mutations.sort(key=lambda x: get_mutation_position(x), reverse=True)
+  last_applied_pos = -1
   for mutation in mutations:
     # Decide whether to apply mutation based on its proportion
+    if get_mutation_position(mutation) == last_applied_pos:
+      continue
     if np.random.rand() < mutation.proportion:
+      last_applied_pos = get_mutation_position(mutation)
       frag_seq = mutation.apply(frag_seq, frag_start)
   return frag_seq
 

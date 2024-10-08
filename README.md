@@ -19,3 +19,8 @@ cd ../
 cd batch2/
 python3 ../genvar.py ../ref.fa config.yml 
 ```
+
+
+bowtie2 -x ../ref/index -1 P1_R1.fq.gz -2 P1_R2.fq.gz -S P1.sam -p 12 -X 1000
+samtools sort -o P1.bam P1.sam -@ 12
+samtools index P1.bam

@@ -15,7 +15,7 @@ P0:
       beta: 2
   indel:
     gamma_pos:
-      shape: 5
+      shape: 10
       rate: 1
     bernouilli:
       p: 0.5
@@ -25,10 +25,10 @@ P0:
       beta: 2
   deletion:
     gamma_pos:
-      shape: 1
-      rate: 10
+      shape: 2
+      rate: 1
     gamma_size:
-      shape: 5
+      shape: 50
       rate: 2
     beta_prop:
       alpha: 2
@@ -69,3 +69,11 @@ P1:
     beta_prop:
       alpha: 2
       beta: 2
+  indel_indels:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  
