@@ -9,6 +9,10 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+
 def main():
   parser = argparse.ArgumentParser(description="Simulate viral evolution with mutations over passages")
   parser.add_argument("virus_fasta", help="Reference virus sequence in FASTA format")
@@ -28,7 +32,7 @@ def main():
 
   # Read configuration file
   with open(args.config_file, 'r') as f:
-      config = yaml.safe_load(f)
+    config = yaml.safe_load(f)
 
   # Get passages from config
   passages = sorted(config.keys())
@@ -39,70 +43,82 @@ def main():
   known_deletions = []
 
   for passage in passages:
-      print(f"Processing passage: {passage}")
-      passage_params = config[passage]
-      # Generate new mutations
-      snp_params = passage_params.get('snp', {})
-      indel_params = passage_params.get('indel', {})
-      deletion_params = passage_params.get('deletion', {})
+    print(f"Processing passage: {passage}")
+    passage_params = config[passage]
+    # Generate new mutations
+    snp_params = passage_params.get('snp', {})
+    indel_params = passage_params.get('indel', {})
+    deletion_params = passage_params.get('deletion', {})
 
-      # Generate new mutations
-      new_snps = generate_snp(snp_params, reference_sequence, known_snps, known_indels, known_deletions) if snp_params else []
-      new_indels = generate_indel(indel_params, reference_sequence, known_snps, known_indels, known_deletions) if indel_params else []
-      new_deletions = generate_deletions(deletion_params, reference_sequence, known_snps, known_indels, known_deletions) if deletion_params else []
+    # Generate new mutations
+    new_snps = generate_snp(snp_params, reference_sequence, known_snps, known_indels, known_deletions) if snp_params else []
+    new_indels = generate_indel(indel_params, reference_sequence, known_snps, known_indels, known_deletions) if indel_params else []
+    new_deletions = generate_deletions(deletion_params, reference_sequence, known_snps, known_indels, known_deletions) if deletion_params else []
 
-      # Update existing mutations (mutation propagation)
-      # For simplicity, we'll assume a Bernoulli trial with p=0.5 to determine if a mutation evolves
-      mutation_stability_prob = 0.5
+    # Evolution parameters
+    evolve_params = passage_params.get('evolve', {})
+    w_positive = evolve_params.get('w_positive', 1)
+    w_negative = evolve_params.get('w_negative', 1)
+    w_neutral = evolve_params.get('w_neutral', 1)
+    beta_select_alpha = evolve_params.get('beta_select', {}).get('alpha', 2)
+    beta_select_beta = evolve_params.get('beta_select', {}).get('beta', 2)
 
-      for mutation_list, params in [(known_snps, snp_params), (known_indels, indel_params), (known_deletions, deletion_params)]:
-          for mutation in mutation_list:
-              if random.random() < mutation_stability_prob:
-                  # Mutation remains stable
-                  pass
-              else:
-                  # Mutation evolves
-                  if params:
-                      mutation.proportion = np.random.beta(params['beta_prop']['alpha'], params['beta_prop']['beta'])
-                  else:
-                      # If params not defined for this passage, mutation remains stable
-                      pass
+    for mutation_list, params in [(known_snps, snp_params), (known_indels, indel_params), (known_deletions, deletion_params)]:
+      for mutation in mutation_list:
 
-      # Add new mutations to known mutations
-      known_snps.extend(new_snps)
-      known_indels.extend(new_indels)
-      known_deletions.extend(new_deletions)
+        selection_type = random.choices(
+          ['positive', 'negative', 'neutral'],
+          weights=[w_positive, w_negative, w_neutral]
+        )[0]
 
-      # Generate reads
-      reads_R1, reads_R2 = generate_reads(reference_sequence, args.num_fragments, args.R1_size, args.R2_size, known_snps, known_indels, known_deletions, args.fragment_size_mean, args.fragment_size_sd, args.fragment_size_min)
+        if selection_type != "neutral":
+          select_scale = np.random.beta(beta_select_alpha, beta_select_beta)
+        
+        if selection_type == 'positive':
+          mutation.proportion = min(1, (1 + select_scale) * mutation.proportion)
+        elif selection_type == 'negative':
+          mutation.proportion = max(0, (1 - select_scale) * mutation.proportion)
 
-      # Write mutations details to CSV
-      with open(f"{passage}.snp.csv", 'w') as f_snp:
-          f_snp.write("position,alt_base,proportion\n")
-          for snp in known_snps:
-              f_snp.write(f"{snp.position},{snp.alt_base},{snp.proportion}\n")
+    # Add new mutations to known mutations
+    known_snps.extend(new_snps)
+    known_indels.extend(new_indels)
+    known_deletions.extend(new_deletions)
 
-      with open(f"{passage}.indel.csv", 'w') as f_indel:
-          f_indel.write("position,type,sequence,proportion\n")
-          for indel in known_indels:
-              f_indel.write(f"{indel.position},{indel.indel_type},{indel.sequence},{indel.proportion}\n")
+    # Generate reads
+    reads_R1, reads_R2 = generate_reads(reference_sequence, args.num_fragments, args.R1_size, args.R2_size, known_snps, known_indels, known_deletions, args.fragment_size_mean, args.fragment_size_sd, args.fragment_size_min)
 
-      with open(f"{passage}.deletion.csv", 'w') as f_del:
-          f_del.write("start_position,length,proportion\n")
-          for deletion in known_deletions:
-              f_del.write(f"{deletion.start_position},{deletion.length},{deletion.proportion}\n")
+    # Sort mutations by position before writing to CSV
+    known_snps.sort(key=lambda snp: snp.position)
+    known_indels.sort(key=lambda indel: indel.position)
+    known_deletions.sort(key=lambda deletion: deletion.start_position)
 
-      # Write reads to FASTQ files
-      R1_filename = f"{passage}_R1.fq.gz"
-      R2_filename = f"{passage}_R2.fq.gz"
+    # Write mutations details to CSV
+    with open(f"{passage}.snp.csv", 'w') as f_snp:
+      f_snp.write("position,alt_base,proportion\n")
+      for snp in known_snps:
+        f_snp.write(f"{snp.position},{snp.alt_base},{snp.proportion}\n")
 
-      with open(R1_filename, 'w') as f_R1:
-          SeqIO.write(reads_R1, f_R1, "fastq")
+    with open(f"{passage}.indel.csv", 'w') as f_indel:
+      f_indel.write("position,type,sequence,proportion\n")
+      for indel in known_indels:
+        f_indel.write(f"{indel.position},{indel.indel_type},{indel.sequence},{indel.proportion}\n")
 
-      with open(R2_filename, 'w') as f_R2:
-          SeqIO.write(reads_R2, f_R2, "fastq")
+    with open(f"{passage}.deletion.csv", 'w') as f_del:
+      f_del.write("start_position,length,proportion\n")
+      for deletion in known_deletions:
+        f_del.write(f"{deletion.start_position},{deletion.length},{deletion.proportion}\n")
 
-      print(f"Passage {passage} processing complete.")
+    # Write reads to FASTQ files
+    R1_filename = f"{passage}_R1.fq.gz"
+    R2_filename = f"{passage}_R2.fq.gz"
+
+    with open(R1_filename, 'w') as f_R1:
+      SeqIO.write(reads_R1, f_R1, "fastq")
+
+    with open(R2_filename, 'w') as f_R2:
+      SeqIO.write(reads_R2, f_R2, "fastq")
+
+    print(f"Passage {passage} processing complete.")
 
 class SNP:
   def __init__(self, position, alt_base, proportion):
@@ -180,26 +196,26 @@ def generate_snp(snp_params, reference_sequence, known_snp=[], known_indel=[], k
 
   # Exclude positions of known mutations
   for snp in known_snp:
-      possible_positions.discard(snp.position)
+    possible_positions.discard(snp.position)
   for indel in known_indel:
-      if indel.indel_type == 'insertion':
-          possible_positions.discard(indel.position)
-      else:
-          for pos in range(indel.position, indel.position + indel.length):
-              possible_positions.discard(pos)
+    if indel.indel_type == 'insertion':
+      possible_positions.discard(indel.position)
+    else:
+      for pos in range(indel.position, indel.position + indel.length):
+        possible_positions.discard(pos)
   for deletion in known_deletions:
-      for pos in range(deletion.start_position, deletion.start_position + deletion.length):
-          possible_positions.discard(pos)
+    for pos in range(deletion.start_position, deletion.start_position + deletion.length):
+      possible_positions.discard(pos)
 
   positions = random.sample(tuple(possible_positions), min(num_snps, len(possible_positions)))
 
   for pos in positions:
-      ref_base = reference_sequence[pos]
-      alt_bases = [b for b in ['A', 'T', 'C', 'G'] if b != ref_base]
-      alt_base = random.choice(alt_bases)
-      proportion = np.random.beta(snp_params['beta_prop']['alpha'], snp_params['beta_prop']['beta'])
-      snp = SNP(position=pos, alt_base=alt_base, proportion=proportion)
-      snps.append(snp)
+    ref_base = reference_sequence[pos]
+    alt_bases = [b for b in ['A', 'T', 'C', 'G'] if b != ref_base]
+    alt_base = random.choice(alt_bases)
+    proportion = np.random.beta(snp_params['beta_prop']['alpha'], snp_params['beta_prop']['beta'])
+    snp = SNP(position=pos, alt_base=alt_base, proportion=proportion)
+    snps.append(snp)
   return snps
 
 def generate_indel(indel_params, reference_sequence, known_snp=[], known_indel=[], known_deletions=[]):
@@ -209,34 +225,34 @@ def generate_indel(indel_params, reference_sequence, known_snp=[], known_indel=[
   # Exclude positions of known mutations
   possible_positions = set(range(len(reference_sequence)))
   for snp in known_snp:
-      possible_positions.discard(snp.position)
+    possible_positions.discard(snp.position)
   for indel in known_indel:
-      if indel.indel_type == 'insertion':
-          possible_positions.discard(indel.position)
-      else:
-          for pos in range(indel.position, indel.position + indel.length):
-              possible_positions.discard(pos)
+    if indel.indel_type == 'insertion':
+      possible_positions.discard(indel.position)
+    else:
+      for pos in range(indel.position, indel.position + indel.length):
+        possible_positions.discard(pos)
   for deletion in known_deletions:
-      for pos in range(deletion.start_position, deletion.start_position + deletion.length):
-          possible_positions.discard(pos)
+    for pos in range(deletion.start_position, deletion.start_position + deletion.length):
+      possible_positions.discard(pos)
 
   positions = random.sample(tuple(possible_positions), min(num_indels, len(possible_positions)))
 
   for pos in positions:
-      indel_type = 'insertion' if np.random.rand() < indel_params['bernouilli']['p'] else 'deletion'
-      indel_size = random.choices([1,2,3], weights=indel_params['weights'])[0]
-      proportion = np.random.beta(indel_params['beta_prop']['alpha'], indel_params['beta_prop']['beta'])
-      if indel_type == 'insertion':
-          # Create a random insertion sequence
-          ins_seq = ''.join(random.choices(['A','T','C','G'], k=indel_size))
-          indel = Indel(position=pos, indel_type='insertion', sequence=ins_seq, proportion=proportion)
-      else:
-          # For deletion, ensure the deletion does not go beyond the sequence
-          if pos + indel_size > len(reference_sequence):
-              indel_size = len(reference_sequence) - pos
-          del_seq = reference_sequence[pos:pos+indel_size]
-          indel = Indel(position=pos, indel_type='deletion', sequence=del_seq, proportion=proportion)
-      indels.append(indel)
+    indel_type = 'insertion' if np.random.rand() < indel_params['bernouilli']['p'] else 'deletion'
+    indel_size = random.choices([1,2,3], weights=indel_params['weights'])[0]
+    proportion = np.random.beta(indel_params['beta_prop']['alpha'], indel_params['beta_prop']['beta'])
+    if indel_type == 'insertion':
+      # Create a random insertion sequence
+      ins_seq = ''.join(random.choices(['A','T','C','G'], k=indel_size))
+      indel = Indel(position=pos, indel_type='insertion', sequence=ins_seq, proportion=proportion)
+    else:
+      # For deletion, ensure the deletion does not go beyond the sequence
+      while pos + indel_size > len(reference_sequence):
+        indel_size = indel_size - 1
+      del_seq = reference_sequence[pos:pos+indel_size]
+      indel = Indel(position=pos, indel_type='deletion', sequence=del_seq, proportion=proportion)
+    indels.append(indel)
   return indels
 
 def generate_deletions(deletion_params, reference_sequence, known_snp=[], known_indel=[], known_deletions=[]):
@@ -245,26 +261,26 @@ def generate_deletions(deletion_params, reference_sequence, known_snp=[], known_
   # Exclude positions of known mutations
   possible_positions = set(range(len(reference_sequence)))
   for snp in known_snp:
-      possible_positions.discard(snp.position)
+    possible_positions.discard(snp.position)
   for indel in known_indel:
-      if indel.indel_type == 'insertion':
-          possible_positions.discard(indel.position)
-      else:
-          for pos in range(indel.position, indel.position + indel.length):
-              possible_positions.discard(pos)
+    if indel.indel_type == 'insertion':
+      possible_positions.discard(indel.position)
+    else:
+      for pos in range(indel.position, indel.position + indel.length):
+        possible_positions.discard(pos)
   for deletion in known_deletions:
-      for pos in range(deletion.start_position, deletion.start_position + deletion.length):
-          possible_positions.discard(pos)
+    for pos in range(deletion.start_position, deletion.start_position + deletion.length):
+      possible_positions.discard(pos)
 
   positions = random.sample(tuple(possible_positions), min(num_deletions, len(possible_positions)))
 
   for pos in positions:
-      del_size = int(np.random.gamma(shape=deletion_params['gamma_size']['shape'], scale=1.0/deletion_params['gamma_size']['rate']))
-      if pos + del_size > len(reference_sequence):
-          del_size = len(reference_sequence) - pos
-      proportion = np.random.beta(deletion_params['beta_prop']['alpha'], deletion_params['beta_prop']['beta'])
-      deletion = Deletion(start_position=pos, length=del_size, proportion=proportion)
-      deletions.append(deletion)
+    del_size = int(np.random.gamma(shape=deletion_params['gamma_size']['shape'], scale=1.0/deletion_params['gamma_size']['rate']))
+    if pos + del_size > len(reference_sequence):
+      del_size = len(reference_sequence) - pos
+    proportion = np.random.beta(deletion_params['beta_prop']['alpha'], deletion_params['beta_prop']['beta'])
+    deletion = Deletion(start_position=pos, length=del_size, proportion=proportion)
+    deletions.append(deletion)
   return deletions
 
 def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, known_indels, known_deletions):
@@ -279,20 +295,20 @@ def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, kno
   # Apply deletions and indels from highest position to lowest
   # For sorting, get position attribute (snp.position), (indel.position), (deletion.start_position)
   def get_mutation_position(mutation):
-      if isinstance(mutation, SNP):
-          return mutation.position
-      elif isinstance(mutation, Indel):
-          return mutation.position
-      elif isinstance(mutation, Deletion):
-          return mutation.start_position
-      else:
-          return 0
+    if isinstance(mutation, SNP):
+      return mutation.position
+    elif isinstance(mutation, Indel):
+      return mutation.position
+    elif isinstance(mutation, Deletion):
+      return mutation.start_position
+    else:
+      return 0
 
   mutations.sort(key=lambda x: get_mutation_position(x), reverse=True)
   for mutation in mutations:
-      # Decide whether to apply mutation based on its proportion
-      if np.random.rand() < mutation.proportion:
-          frag_seq = mutation.apply(frag_seq, frag_start)
+    # Decide whether to apply mutation based on its proportion
+    if np.random.rand() < mutation.proportion:
+      frag_seq = mutation.apply(frag_seq, frag_start)
   return frag_seq
 
 def generate_reads(reference_sequence, num_fragments, R1_size, R2_size, known_snps, known_indels, known_deletions, size_mean, size_sd, min_size):
@@ -300,36 +316,36 @@ def generate_reads(reference_sequence, num_fragments, R1_size, R2_size, known_sn
   reads_R1 = []
   reads_R2 = []
   for i in range(num_fragments):
-      # Generate fragment start position
-      frag_size = 0
-      while frag_size > min_size:
-        frag_size = int(np.random.normal(size_mean, size_sd))
-      if frag_size <= 0:
-          frag_size = int(size_mean)
-      if frag_size > virus_length:
-          frag_size = virus_length
-      frag_start = np.random.randint(0, virus_length - frag_size + 1)
-      frag_seq = generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, known_indels, known_deletions)
+    # Generate fragment start position
+    frag_size = 0
+    while frag_size > min_size:
+      frag_size = int(np.random.normal(size_mean, size_sd))
+    if frag_size <= 0:
+      frag_size = int(size_mean)
+    if frag_size > virus_length:
+      frag_size = virus_length
+    frag_start = np.random.randint(0, virus_length - frag_size + 1)
+    frag_seq = generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, known_indels, known_deletions)
 
-      # Generate R1 and R2 sequences
-      R1_seq = frag_seq[:R1_size]
-      R2_seq = frag_seq[-R2_size:]  # Last R2_size bases
-      # Reverse complement R2
-      R2_seq = str(Seq(R2_seq).reverse_complement())
+    # Generate R1 and R2 sequences
+    R1_seq = frag_seq[:R1_size]
+    R2_seq = frag_seq[-R2_size:]  # Last R2_size bases
+    # Reverse complement R2
+    R2_seq = str(Seq(R2_seq).reverse_complement())
 
-      # Generate quality scores (Phred score 28)
-      R1_qual = [28]*len(R1_seq)
-      R2_qual = [28]*len(R2_seq)
+    # Generate quality scores (Phred score 28)
+    R1_qual = [28]*len(R1_seq)
+    R2_qual = [28]*len(R2_seq)
 
-      # Create SeqRecord objects
-      read_id = f"frag_{i}"
-      read_R1 = SeqRecord(Seq(R1_seq), id=read_id + "/1", description="")
-      read_R1.letter_annotations["phred_quality"] = R1_qual
-      read_R2 = SeqRecord(Seq(R2_seq), id=read_id + "/2", description="")
-      read_R2.letter_annotations["phred_quality"] = R2_qual
+    # Create SeqRecord objects
+    read_id = f"frag_{i}"
+    read_R1 = SeqRecord(Seq(R1_seq), id=read_id + "/1", description="")
+    read_R1.letter_annotations["phred_quality"] = R1_qual
+    read_R2 = SeqRecord(Seq(R2_seq), id=read_id + "/2", description="")
+    read_R2.letter_annotations["phred_quality"] = R2_qual
 
-      reads_R1.append(read_R1)
-      reads_R2.append(read_R2)
+    reads_R1.append(read_R1)
+    reads_R2.append(read_R2)
   return reads_R1, reads_R2
 
 if __name__ == "__main__":
