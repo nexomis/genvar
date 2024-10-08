@@ -1,0 +1,115 @@
+P0:
+  snp:
+    gamma_pos:
+      shape: 20
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  indel:
+    gamma_pos:
+      shape: 10
+      rate: 1
+    bernouilli:
+      p: 0.5
+    weights: [1, 1, 5]
+    beta_prop:
+      alpha: 2
+      beta: 2
+  deletion:
+    gamma_pos:
+      shape: 1
+      rate: 10
+    gamma_size:
+      shape: 5
+      rate: 2
+    beta_prop:
+      alpha: 2
+      beta: 2
+
+P1:
+  snp:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  indel:
+    gamma_pos:
+      shape: 2
+      rate: 1
+    bernouilli:
+      p: 0.5
+    weights: [1, 1, 5]
+    beta_prop:
+      alpha: 2
+      beta: 2
+  deletion:
+    gamma_pos:
+      shape: 1
+      rate: 10
+    gamma_size:
+      shape: 4
+      rate: 2
+    beta_prop:
+      alpha: 2
+      beta: 2
+
+P2:
+  snp:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  indel:
+    gamma_pos:
+      shape: 2
+      rate: 1
+    bernouilli:
+      p: 0.5
+    weights: [1, 1, 5]
+    beta_prop:
+      alpha: 2
+      beta: 2
+  deletion:
+    gamma_pos:
+      shape: 1
+      rate: 10
+    gamma_size:
+      shape: 4
+      rate: 2
+    beta_prop:
+      alpha: 2
+      beta: 2
+
+P3:
+  snp:
+    gamma_pos:
+      shape: 5
+      rate: 1
+    beta_prop:
+      alpha: 2
+      beta: 2
+  indel:
+    gamma_pos:
+      shape: 2
+      rate: 1
+    bernouilli:
+      p: 0.5
+    weights: [1, 1, 5]
+    beta_prop:
+      alpha: 2
+      beta: 2
+  deletion:
+    gamma_pos:
+      shape: 1
+      rate: 10
+    gamma_size:
+      shape: 4
+      rate: 2
+    beta_prop:
+      alpha: 2
+      beta: 2
