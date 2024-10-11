@@ -5,6 +5,7 @@ import sys
 import random
 import numpy as np
 import yaml
+import gzip
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -128,10 +129,10 @@ def main():
     R1_filename = f"{passage}_R1.fq.gz"
     R2_filename = f"{passage}_R2.fq.gz"
 
-    with open(R1_filename, 'w') as f_R1:
+    with gzip.open(R1_filename, 'wt') as f_R1:
       SeqIO.write(reads_R1, f_R1, "fastq")
 
-    with open(R2_filename, 'w') as f_R2:
+    with gzip.open(R2_filename, 'wt') as f_R2:
       SeqIO.write(reads_R2, f_R2, "fastq")
 
     print(f"Passage {passage} processing complete.")
