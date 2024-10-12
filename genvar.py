@@ -111,19 +111,19 @@ def main():
 
     # Write mutations details to CSV
     with open(f"{passage}.snp.csv", 'w') as f_snp:
-      f_snp.write("position,alt_base,proportion\n")
+      f_snp.write("region,position,alt_base,proportion\n")
       for snp in known_snps:
-        f_snp.write(f"{snp.position},{snp.alt_base},{snp.proportion}\n")
+        f_snp.write(f"{reference_seq_record.id},{snp.position},{snp.alt_base},{snp.proportion}\n")
 
     with open(f"{passage}.indel.csv", 'w') as f_indel:
-      f_indel.write("position,type,sequence,proportion\n")
+      f_indel.write("region,position,type,sequence,proportion\n")
       for indel in known_indels:
-        f_indel.write(f"{indel.position},{indel.indel_type},{indel.sequence},{indel.proportion}\n")
+        f_indel.write(f"{reference_seq_record.id},{indel.position},{indel.indel_type},{indel.sequence},{indel.proportion}\n")
 
     with open(f"{passage}.deletion.csv", 'w') as f_del:
-      f_del.write("start_position,length,proportion\n")
+      f_del.write("region,start_position,length,proportion\n")
       for deletion in known_deletions:
-        f_del.write(f"{deletion.start_position},{deletion.length},{deletion.proportion}\n")
+        f_del.write(f"{reference_seq_record.id},{deletion.start_position},{deletion.length},{deletion.proportion}\n")
 
     # Write reads to FASTQ files
     R1_filename = f"{passage}_R1.fq.gz"
@@ -430,14 +430,29 @@ def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, kno
       return 0
 
   mutations.sort(key=lambda x: get_mutation_position(x), reverse=True)
-  last_applied_pos = -1
-  for mutation in mutations:
-    # Decide whether to apply mutation based on its proportion
-    if get_mutation_position(mutation) == last_applied_pos:
-      continue
-    if np.random.rand() < mutation.proportion:
-      last_applied_pos = get_mutation_position(mutation)
-      frag_seq = mutation.apply(frag_seq, frag_start)
+  mutation_pool = []
+  i = 0
+  last_position = -1
+  mutation_pool = []
+  while i < len(mutations):
+    mutation = mutations[i]
+    position = get_mutation_position(mutation)
+    if position == last_position:
+      mutation_pool.append(mutation)
+    else:
+      if len(mutation_pool) > 0:
+        w = [mut.proportion for mut in mutation_pool]
+        w.append(abs(1-sum(w)))
+        mutation_pool.append(None)
+        select_mut = random.choices(
+            mutation_pool,
+            weights=w
+          )[0]
+        if select_mut is not None:
+          frag_seq = mutation.apply(frag_seq, frag_start)
+      mutation_pool = [mutation]
+      last_position = position
+    i+=1
   return frag_seq
 
 def generate_reads(reference_sequence, num_fragments, R1_size, R2_size, known_snps, known_indels, known_deletions, size_mean, size_sd, min_size):
