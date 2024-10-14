@@ -143,6 +143,9 @@ class SNP:
       self.alt_base = alt_base
       self.proportion = proportion
 
+  def __str__(self):
+    return(f'{self.position}-{self.alt_base}-{self.proportion}')
+
   def affect_fragment(self, frag_start, frag_end):
       return self.position >= frag_start and self.position < frag_end
 
@@ -408,6 +411,19 @@ def generate_deletions(deletion_params, reference_sequence, known_snp=[], known_
     deletions.append(deletion)
   return deletions
 
+def apply_pool(mutation_pool,frag_seq,frag_start):
+  if len(mutation_pool) > 0:
+    w = [mut.proportion for mut in mutation_pool]
+    w.append(abs(1-sum(w)))
+    mutation_pool.append(None)
+    select_mut = random.choices(
+        mutation_pool,
+        weights=w
+      )[0]
+    if select_mut is not None:
+      return(select_mut.apply(frag_seq, frag_start))
+  return(frag_seq)
+
 def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, known_indels, known_deletions):
   frag_seq = reference_sequence[frag_start:frag_start+frag_size]
   # Collect mutations that affect this fragment
@@ -440,20 +456,11 @@ def generate_frag_seq(reference_sequence, frag_start, frag_size, known_snps, kno
     if position == last_position:
       mutation_pool.append(mutation)
     else:
-      if len(mutation_pool) > 0:
-        w = [mut.proportion for mut in mutation_pool]
-        w.append(abs(1-sum(w)))
-        mutation_pool.append(None)
-        select_mut = random.choices(
-            mutation_pool,
-            weights=w
-          )[0]
-        if select_mut is not None:
-          frag_seq = mutation.apply(frag_seq, frag_start)
+      frag_seq = apply_pool(mutation_pool,frag_seq,frag_start)
       mutation_pool = [mutation]
       last_position = position
     i+=1
-  return frag_seq
+  return(apply_pool(mutation_pool,frag_seq,frag_start))
 
 def generate_reads(reference_sequence, num_fragments, R1_size, R2_size, known_snps, known_indels, known_deletions, size_mean, size_sd, min_size):
   virus_length = len(reference_sequence)
